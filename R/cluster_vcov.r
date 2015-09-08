@@ -252,6 +252,7 @@ cluster.vcov <- function(model, cluster, parallel = FALSE, use_white = NULL,
   }
   
   for(i in 1:tcc) {
+    cluster[,i] <- factor(cluster[,i])
     if(length(parallel) > 1) {
       uj[[i]] <- crossprod(parApply(parallel, esttmp, 2, 
                                     function(x) tapply(x, cluster[,i], sum)))

@@ -17,8 +17,8 @@
 #' matrix to be positive.
 #' @param R \code{Integer}. The number of bootstrap replicates; passed directly to \code{boot}.
 #' @param boot_type \code{"xy"}, \code{"residual"}, or \code{"wild"}.  See details.
-#' @param wild_type \code{"rademacher"}, \code{"mammen"}, or \code{"norm"}.  See details.
-#' @param debug Logical.  Print internal values useful for debugging to 
+#' @param wild_type \code{"rademacher"}, \code{"mammen"}, \code{"webb"}, or \code{"norm"}.  See details.
+#' @param debug \code{logical}.  Print internal values useful for debugging to 
 #' the console.
 #'
 #' @keywords clustering multi-way robust standard errors bootstrap boot block
@@ -27,7 +27,7 @@
 #' This function implements cluster bootstrapping (also known as the block bootstrap)
 #' for variance-covariance matrices, following Cameron, Gelbach, & Miller (CGM) (2008).
 #' Usage is generally similar to the \code{cluster.vcov} function in this package, but this
-#' function does not support degrees of freedome corrections or leverage adjustments.
+#' function does not support degrees of freedom corrections or leverage adjustments.
 #' 
 #' In the terminology that CGM (2008) use, this function implements
 #' \emph{pairs, residual, or wild cluster bootstrap-se}.
@@ -41,10 +41,12 @@
 #' dependent variable by multiplying the residual by a randomly drawn value and adding the
 #' result to the fitted value.  The default method is the pairs/xy bootstrap.
 #' 
-#' There are three built-in distributions to draw multipliers from for wild bootstraps:
+#' There are four built-in distributions to draw multipliers from for wild bootstraps:
 #' the Rademacher (\code{wild_type = "rademacher"}, the default), which draws from [-1, 1],
 #' each with P = 0.5, Mammen's suggested distribution (\code{wild_type = "mammen"}, see 
-#' Mammen, 1993), and the standard normal/Gaussian distribution (\code{wild_type = "norm"}).
+#' Mammen, 1993), Webb's suggested distribution (\code{wild_type = "webb"}, see 
+#' Webb, 2013), which samples from \eqn{{−\sqrt 1.5, −1, −\sqrt 0.5, \sqrt 0.5, 1, \sqrt 1.5}}, 
+#' and the standard normal/Gaussian distribution (\code{wild_type = "norm"}).
 #' The default is the Rademacher distribution, following CGM (2008).  Alternatively, you can
 #' set the function to draw multipliers from by assigning
 #' \code{wild_type} to a function that takes no arguments and returns a single real value.
@@ -85,6 +87,9 @@
 #' 
 #' Petersen, M. A. (2009). Estimating standard errors in finance panel data sets: Comparing 
 #' approaches. Review of financial studies, 22(1), 435-480.
+#' 
+#' Webb, M. D. (2013). Reworking wild bootstrap based inference for clustered errors.
+#' Queens Economics Department Working Paper 1315.
 #' 
 #' @importFrom sandwich vcovHC vcovHC.default
 #' @importFrom boot boot
@@ -131,7 +136,22 @@
 cluster.boot <- function(model, cluster, parallel = FALSE, use_white = NULL, 
                          force_posdef = FALSE, R = 300, boot_type = "xy", wild_type = "rademacher",
                          debug = FALSE) {
-  
+  vars_matrix <- model.frame(model)
+  vars_matrix <- vars_matrix[,-which(names(vars_matrix) == "(weights)")]
+  which_factor <- sapply(vars_matrix, is.factor)
+  if (any(which_factor)){
+    resid_mat <- sapply(vars_matrix[, !which_factor], function(aless89sdfbn){
+      tmp_data <- vars_matrix[,which_factor]
+      tmp_data$aless89sdfbn <- aless89sdfbn
+      lm(aless89sdfbn ~ ., data = tmp_data)$residuals
+    })
+    data_tmp <- data.frame(resid_mat)
+    names(data_tmp) <- names(vars_matrix[,!which_factor])
+    
+    my_formula <- as.formula(paste(names(data_tmp[1]), " ~ ", paste(names(data_tmp)[-1], collapse = " + "), " - 1"))
+    
+    model <- lm(my_formula, data = data_tmp)
+  }
   cluster <- as.data.frame(cluster)
   cluster_dims <- ncol(cluster)
   
@@ -200,7 +220,7 @@ cluster.boot <- function(model, cluster, parallel = FALSE, use_white = NULL,
     print(paste("Use White VCOV for final matrix?", use_white))
   }
   
-
+  
   if("model" %in% names(model)) {
     full_data <- model$model
   } else {
@@ -223,12 +243,12 @@ cluster.boot <- function(model, cluster, parallel = FALSE, use_white = NULL,
   }
   
   dat_loc <- which(names(model$call) == "data") 
-  args <- model$call[c(-1, -dat_loc)]
+  args <- eval(model$call[[2]])
   wild_func <- function() NULL
   
   # Setup the bootstrap functions, depending upon the type of bootstrap requested
   if(boot_type == "xy") {
-    est.func <- cmpfun(function(grp, i, data2, clustvar, reg_arglist, boot_args) {
+    est.func <- compiler::cmpfun(function(grp, i, data2, clustvar, reg_arglist, boot_args) {
       j <- unlist(lapply(i, function(n) which(n == clustvar)))
       coef(boot_args$estimator(reg_arglist, data = data2[j,]))
     })
@@ -236,10 +256,10 @@ cluster.boot <- function(model, cluster, parallel = FALSE, use_white = NULL,
     args$formula <- update.formula(formula(model), y_boot ~ .)
     full_data$y_boot <- 0
     
-    est.func <- cmpfun(function(grp, i, data2, clustvar, reg_arglist, boot_args) {
+    est.func <- compiler::cmpfun(function(grp, i, data2, clustvar, reg_arglist, boot_args) {
       j <- unlist(lapply(i, function(n) which(n == clustvar)))
       data2$y_boot <- fitted(boot_args$model) + residuals(boot_args$model)[j]
-      coef(boot_args$estimator(reg_arglist, data = data2))
+      coef(boot_args$estimator(reg_arglist$formula, data = data2))
     })
   } else if(boot_type == "wild") {
     args$formula <- update.formula(formula(model), y_boot ~ .)
@@ -254,6 +274,9 @@ cluster.boot <- function(model, cluster, parallel = FALSE, use_white = NULL,
         wild_func <- cmpfun(function() sample(c(-(sqrt(5) - 1) / 2, (sqrt(5) + 1) / 2), 1,
                                               prob = c((sqrt(5) + 1) / (2 * sqrt(5)), 
                                                        (sqrt(5) - 1) / (2 * sqrt(5)))))
+      } else if(wild_type == "webb") {
+        wild_func <- cmpfun(function() sample(c(-sqrt(1.5), -1, -sqrt(0.5),
+                                                sqrt(0.5), 1, sqrt(1.5)), 1))
       } else if(wild_type == "norm") {
         wild_func <- cmpfun(function() rnorm(1))
       }
@@ -263,7 +286,7 @@ cluster.boot <- function(model, cluster, parallel = FALSE, use_white = NULL,
     est.func <- cmpfun(function(grp, i, data2, clustvar, reg_arglist, boot_args) {
       j <- unlist(lapply(grp, function(n) rep_len(boot_args$wild_func(), sum(n == clustvar))))
       data2$y_boot <- fitted(model) + residuals(model) * j
-      coef(boot_args$estimator(reg_arglist, data = data2))
+      coef(boot_args$estimator(reg_arglist$formula, data = data2))
     })
   }
   boot_args <- new.env()
@@ -272,10 +295,10 @@ cluster.boot <- function(model, cluster, parallel = FALSE, use_white = NULL,
   boot_args$wild_func <- wild_func
   
   for(i in 1:tcc) {
-    boot.outs[[i]] <- boot(unique(cluster[,i]), est.func, R = R,
-                           parallel = par_type, cl = par_cluster,
-                           data2 = full_data, clustvar = cluster[,i],
-                           reg_arglist = args, boot_args = boot_args)
+    boot.outs[[i]] <- boot::boot(unique(cluster[,i]), est.func, R = R,
+                                 parallel = par_type, cl = par_cluster,
+                                 data2 = full_data, clustvar = cluster[,i],
+                                 reg_arglist = args, boot_args = boot_args)
   }
   
   if(debug) {

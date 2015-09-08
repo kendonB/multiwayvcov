@@ -8,7 +8,8 @@ Author: Nathaniel Graham and Mahmood Arai and Björn Hagströmer
 Maintainer: Nathaniel Graham <npgraham1@gmail.com>
 Depends: R (>= 3.0.0)
 Imports: sandwich, boot, compiler, parallel
-Suggests: lmtest
+Suggests: lmtest,
+    testthat
 URL: http://sites.google.com/site/npgraham1/research/code
 LazyData: no
 Description: Exports two functions implementing
