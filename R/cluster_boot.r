@@ -137,11 +137,18 @@ cluster.boot <- function(model, cluster, parallel = FALSE, use_white = NULL,
                          force_posdef = FALSE, R = 300, boot_type = "xy", wild_type = "rademacher",
                          debug = FALSE) {
   vars_matrix <- model.frame(model)
-  vars_matrix <- vars_matrix[,-which(names(vars_matrix) == "(weights)")]
+  weights_col <- which(names(vars_matrix) == "(weights)")
+  if (length(weights_col) > 0){
+    # Remove the weights column if it's there.
+    vars_matrix <- vars_matrix[,-weights_col]
+  }
   which_factor <- sapply(vars_matrix, is.factor)
   if (any(which_factor)){
+    # Remove all the factors using FWL.
+    # ***This should be implemented using user specified factors.
+    # For example, male/female/other might get picked up
     resid_mat <- sapply(vars_matrix[, !which_factor], function(aless89sdfbn){
-      tmp_data <- vars_matrix[,which_factor]
+      tmp_data <- data.frame(vars_matrix[,which_factor])
       tmp_data$aless89sdfbn <- aless89sdfbn
       lm(aless89sdfbn ~ ., data = tmp_data)$residuals
     })
